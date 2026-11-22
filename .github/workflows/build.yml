@@ -1,0 +1,110 @@
+name: windows-build
+
+# 只手动触发（不在 push / PR 时自动跑，省额度）
+on:
+  workflow_dispatch:
+    inputs:
+      src_tag:
+        description: 源码快照所在的 Release 标签（src-<时间>）
+        required: true
+      src_asset:
+        description: 快照文件名（zhitong-src-<时间>.tar.gz）
+        required: true
+      src_sha256:
+        description: 快照的 SHA256
+        required: true
+      mode:
+        description: quick = 构建 + 快测；full = 再加全测（M3 起才有）
+        default: quick
+        type: choice
+        options: [quick, full]
+      skip_shell:
+        description: 跳过 Tauri 外壳编译（只验证服务能起来）
+        default: false
+        type: boolean
+
+permissions:
+  contents: write   # 读草稿 Release 的附件需要写权限
+
+concurrency:
+  group: windows-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取源码快照并核对哈希
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.src_tag }}" -p "${{ inputs.src_asset }}" -D _src_dl -R "${{ github.repository }}"
+          $f = Join-Path _src_dl "${{ inputs.src_asset }}"
+          $got = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+          if ($got -ne "${{ inputs.src_sha256 }}") { throw "快照哈希不一致：$got" }
+          New-Item -ItemType Directory -Force -Path src | Out-Null
+          tar -xzf $f -C src
+          if ($LASTEXITCODE -ne 0) { throw '解压快照失败' }
+          Get-ChildItem src | Select-Object Name
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+
+      - name: 缓存 Rust 编译结果
+        if: ${{ !inputs.skip_shell }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/winapp/src-tauri -> target
+
+      - name: 缓存下载的 Node / Python 包
+        uses: actions/cache@v4
+        with:
+          path: out/_cache
+          key: winvendor-node24.18.0-py3.13.17-20261021
+
+      - name: 构建
+        run: |
+          $a = @('-SourceDir', 'src', '-OutDir', 'out')
+          if ('${{ inputs.skip_shell }}' -eq 'true') { $a += '-SkipShell' }
+          pwsh -File src/winapp/build.ps1 @a
+
+      - name: 快测（服务启动、/ 返回 200、外壳拉起服务）
+        run: |
+          $zip = Get-ChildItem out -Filter 'ZHITONG-*-win-x64.zip' | Select-Object -First 1
+          $a = @('-Zip', $zip.FullName, '-WorkDir', 'smoke')
+          if ('${{ inputs.skip_shell }}' -eq 'true') { $a += '-SkipShell' }
+          pwsh -File src/winapp/ci/smoke.ps1 @a
+
+      - name: 全测
+        if: ${{ inputs.mode == 'full' }}
+        run: |
+          if (Test-Path src/winapp/ci/full.ps1) { pwsh -File src/winapp/ci/full.ps1 -WorkDir smoke } else { Write-Host '全测脚本还没有（M3 起补）' }
+
+      - name: 收集日志
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force -Path report | Out-Null
+          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json') { if (Test-Path $f) { Copy-Item $f report/ } }
+          foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report
+          path: report
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: zhitong-win-x64
+          path: out/ZHITONG-*-win-x64.zip
+          retention-days: 3
+          compression-level: 0
