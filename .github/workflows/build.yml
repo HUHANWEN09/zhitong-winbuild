@@ -44,8 +44,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${{ inputs.src_tag }}" -p "${{ inputs.src_asset }}" -D _src_dl -R "${{ github.repository }}"
-          $f = Join-Path _src_dl "${{ inputs.src_asset }}"
+          # 草稿 Release 按标签查不到，改为列出 Release 按名字找附件，再用接口下载（令牌只走请求头，不打印）
+          $rels = gh api "repos/${{ github.repository }}/releases?per_page=50" | ConvertFrom-Json
+          $rel = $rels | Where-Object { $_.name -eq '${{ inputs.src_tag }}' } | Select-Object -First 1
+          if (-not $rel) { throw '找不到草稿 Release ${{ inputs.src_tag }}' }
+          $asset = $rel.assets | Where-Object { $_.name -eq '${{ inputs.src_asset }}' } | Select-Object -First 1
+          if (-not $asset) { throw '草稿 Release 里没有 ${{ inputs.src_asset }}' }
+          New-Item -ItemType Directory -Force -Path _src_dl | Out-Null
+          $f = Join-Path _src_dl '${{ inputs.src_asset }}'
+          curl.exe -sSfL -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/octet-stream' -o $f $asset.url
+          if ($LASTEXITCODE -ne 0) { throw '下载快照失败' }
           $got = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
           if ($got -ne "${{ inputs.src_sha256 }}") { throw "快照哈希不一致：$got" }
           New-Item -ItemType Directory -Force -Path src | Out-Null
