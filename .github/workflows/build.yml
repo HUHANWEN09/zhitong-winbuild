@@ -99,7 +99,7 @@ jobs:
         if: always()
         run: |
           New-Item -ItemType Directory -Force -Path report | Out-Null
-          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png', 'smoke/full_result.json', 'smoke/termd_bench.json') { if (Test-Path $f) { Copy-Item $f report/ } }
+          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png', 'smoke/full_result.json', 'smoke/termd_bench.json', 'smoke/e2e_accept.json') { if (Test-Path $f) { Copy-Item $f report/ } }
           Get-ChildItem smoke -Filter 'full_*.txt' -ErrorAction SilentlyContinue | Copy-Item -Destination report/
           foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
 
