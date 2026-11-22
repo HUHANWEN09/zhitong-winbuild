@@ -99,7 +99,7 @@ jobs:
         if: always()
         run: |
           New-Item -ItemType Directory -Force -Path report | Out-Null
-          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json') { if (Test-Path $f) { Copy-Item $f report/ } }
+          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png') { if (Test-Path $f) { Copy-Item $f report/ } }
           foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
 
       - uses: actions/upload-artifact@v4
