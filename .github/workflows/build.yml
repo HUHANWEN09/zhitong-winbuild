@@ -14,10 +14,10 @@ on:
         description: 快照的 SHA256
         required: true
       mode:
-        description: quick = 构建 + 快测；full = 再加全测（M3 起才有）
+        description: quick = 构建 + 快测；full = 再加全测；preview = 全测 + 预览版验收（真实 Claude / Codex、外壳登录）+ 预览 zip
         default: quick
         type: choice
-        options: [quick, full]
+        options: [quick, full, preview]
       skip_shell:
         description: 跳过 Tauri 外壳编译（只验证服务能起来）
         default: false
@@ -33,7 +33,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     defaults:
       run:
         shell: pwsh
@@ -91,17 +91,22 @@ jobs:
           pwsh -File src/winapp/ci/smoke.ps1 @a
 
       - name: 全测
-        if: ${{ inputs.mode == 'full' }}
+        if: ${{ inputs.mode == 'full' || inputs.mode == 'preview' }}
         run: |
           if (Test-Path src/winapp/ci/full.ps1) { pwsh -File src/winapp/ci/full.ps1 -WorkDir smoke } else { Write-Host '全测脚本还没有（M3 起补）' }
+
+      - name: 预览版验收和打包（官方方式装 Claude Code / Codex，外壳里登录和开窗口，打预览 zip）
+        if: ${{ inputs.mode == 'preview' }}
+        run: pwsh -File src/winapp/ci/preview.ps1 -WorkDir smoke -OutDir out -SourceDir src
 
       - name: 收集日志
         if: always()
         run: |
           New-Item -ItemType Directory -Force -Path report | Out-Null
-          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png', 'smoke/full_result.json', 'smoke/termd_bench.json', 'smoke/e2e_accept.json', 'smoke/e2e_accept_sys.json', 'smoke/conpty_modes.json') { if (Test-Path $f) { Copy-Item $f report/ } }
+          foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png', 'smoke/full_result.json', 'smoke/termd_bench.json') { if (Test-Path $f) { Copy-Item $f report/ } }
           Get-ChildItem smoke -Filter 'full_*.txt' -ErrorAction SilentlyContinue | Copy-Item -Destination report/
-          foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
+          if (Test-Path smoke/preview) { New-Item -ItemType Directory -Force -Path report/preview | Out-Null; Get-ChildItem smoke/preview -File | Copy-Item -Destination report/preview/ }
+          foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs', 'smoke/preview/data/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -110,10 +115,21 @@ jobs:
           path: report
           retention-days: 3
 
+      # 预览 zip 留在 Actions 产物里（怎么发给客户由主线程决定），保留 14 天
+      - uses: actions/upload-artifact@v4
+        if: ${{ success() && inputs.mode == 'preview' }}
+        with:
+          name: zhitong-win-preview
+          path: out/ZHITONG-*-preview-win-x64.zip
+          retention-days: 14
+          compression-level: 0
+
       - uses: actions/upload-artifact@v4
         if: success()
         with:
           name: zhitong-win-x64
-          path: out/ZHITONG-*-win-x64.zip
+          path: |
+            out/ZHITONG-*-win-x64.zip
+            !out/ZHITONG-*-preview-win-x64.zip
           retention-days: 3
           compression-level: 0
