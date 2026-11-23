@@ -14,10 +14,10 @@ on:
         description: 快照的 SHA256
         required: true
       mode:
-        description: quick = 构建 + 快测；full = 再加全测；preview = 全测 + 预览版验收（真实 Claude / Codex、外壳登录）+ 预览 zip
+        description: quick = 构建 + 快测；full = 再加全测；preview = 全测 + 预览版验收（真实 Claude / Codex、外壳登录）+ 预览 zip；install = 构建 + NSIS 安装包 + 安装卸载验收（不跑快测全测）
         default: quick
         type: choice
-        options: [quick, full, preview]
+        options: [quick, full, preview, install]
       skip_shell:
         description: 跳过 Tauri 外壳编译（只验证服务能起来）
         default: false
@@ -81,9 +81,11 @@ jobs:
         run: |
           $a = @('-SourceDir', 'src', '-OutDir', 'out')
           if ('${{ inputs.skip_shell }}' -eq 'true') { $a += '-SkipShell' }
+          if ('${{ inputs.mode }}' -eq 'install') { $a += '-Installer' }
           pwsh -File src/winapp/build.ps1 @a
 
       - name: 快测（服务启动、/ 返回 200、外壳拉起服务）
+        if: ${{ inputs.mode != 'install' }}
         run: |
           $zip = Get-ChildItem out -Filter 'ZHITONG-*-win-x64.zip' | Select-Object -First 1
           $a = @('-Zip', $zip.FullName, '-WorkDir', 'smoke')
@@ -99,12 +101,17 @@ jobs:
         if: ${{ inputs.mode == 'preview' }}
         run: pwsh -File src/winapp/ci/preview.ps1 -WorkDir smoke -OutDir out -SourceDir src
 
+      - name: 安装包验收（装、升级、重装、回退、清理、卸载、普通用户）
+        if: ${{ inputs.mode == 'install' }}
+        run: pwsh -File src/winapp/ci/install.ps1 -WorkDir inst -OutDir out -SourceDir src
+
       - name: 收集日志
         if: always()
         run: |
           New-Item -ItemType Directory -Force -Path report | Out-Null
           foreach ($f in 'out/build_info.json', 'out/timings.json', 'smoke/smoke_result.json', 'smoke/shell_window.png', 'smoke/full_result.json', 'smoke/termd_bench.json') { if (Test-Path $f) { Copy-Item $f report/ } }
           Get-ChildItem smoke -Filter 'full_*.txt' -ErrorAction SilentlyContinue | Copy-Item -Destination report/
+          if (Test-Path inst/report) { Copy-Item -Recurse inst/report report/install }
           if (Test-Path smoke/preview) { New-Item -ItemType Directory -Force -Path report/preview | Out-Null; Get-ChildItem smoke/preview -File | Copy-Item -Destination report/preview/ }
           foreach ($d in 'smoke/data/logs', 'smoke/shelldata/logs', 'smoke/preview/data/logs') { if (Test-Path $d) { Copy-Item -Recurse $d ("report/" + ($d -replace '[/\\]', '_')) } }
 
@@ -121,6 +128,14 @@ jobs:
         with:
           name: zhitong-win-preview
           path: out/ZHITONG-*-preview-win-x64.zip
+          retention-days: 14
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ success() && inputs.mode == 'install' }}
+        with:
+          name: zhitong-win-setup
+          path: out/ZHITONG-*-win-x64-setup.exe
           retention-days: 14
           compression-level: 0
 
