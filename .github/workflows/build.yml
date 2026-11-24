@@ -131,6 +131,24 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      # 前面有一步没过时，已经打好的预览 zip 也留下来（名字带 unverified，只用来查问题，不准上线），不用为一条验收整轮重来。
+      # 只在没全过时传：全过时上面那份就是同一个文件，不重复占存储
+      - name: 没验收过的预览 zip 改名
+        if: ${{ always() && !success() && inputs.mode == 'preview' }}
+        run: |
+          New-Item -ItemType Directory -Force -Path unverified | Out-Null
+          Get-ChildItem out -Filter 'ZHITONG-*-preview-win-x64.zip' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName (Join-Path unverified ($_.BaseName + '-unverified.zip')) }
+          Get-ChildItem unverified | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && !success() && inputs.mode == 'preview' }}
+        with:
+          name: zhitong-win-preview-unverified
+          path: unverified/*.zip
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 0
+
       - uses: actions/upload-artifact@v4
         if: ${{ success() && inputs.mode == 'install' }}
         with:
