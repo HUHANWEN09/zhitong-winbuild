@@ -120,7 +120,7 @@ jobs:
         with:
           name: report
           path: report
-          retention-days: 3
+          retention-days: 1
 
       # 预览 zip 留在 Actions 产物里（怎么发给客户由主线程决定），保留 14 天
       - uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
         with:
           name: zhitong-win-preview
           path: out/ZHITONG-*-preview-win-x64.zip
-          retention-days: 14
+          retention-days: 1
           compression-level: 0
 
       # 前面有一步没过时，已经打好的预览 zip 也留下来（名字带 unverified，只用来查问题，不准上线），不用为一条验收整轮重来。
@@ -146,7 +146,7 @@ jobs:
           name: zhitong-win-preview-unverified
           path: unverified/*.zip
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 1
           compression-level: 0
 
       - uses: actions/upload-artifact@v4
@@ -154,7 +154,7 @@ jobs:
         with:
           name: zhitong-win-setup
           path: out/ZHITONG-*-win-x64-setup.exe
-          retention-days: 14
+          retention-days: 1
           compression-level: 0
 
       - uses: actions/upload-artifact@v4
@@ -164,5 +164,5 @@ jobs:
           path: |
             out/ZHITONG-*-win-x64.zip
             !out/ZHITONG-*-preview-win-x64.zip
-          retention-days: 3
+          retention-days: 1
           compression-level: 0
